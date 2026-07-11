@@ -8,8 +8,8 @@ async function main() {
   try {
     const res = await db.select().from(schema.users);
     console.log("Success! Users count:", res.length);
-  } catch (e) {
-    console.error("Error:", e.name, e.message);
+  } catch (e: any) {
+    console.error("Error:", e.name || "Error", e.message || e);
   }
 }
 main();

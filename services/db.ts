@@ -1,4 +1,5 @@
 import { User, Role, Order, Message, Address, Zone } from "../types";
+import localforage from 'localforage';
 
 export let db: any = null;
 
@@ -59,7 +60,8 @@ async function rpcCall(method: string, args: any[] = []): Promise<any> {
         if (res.status === 401) {
             const hadToken = localStorage.getItem("al_tayyar_session_token");
             localStorage.removeItem("al_tayyar_user_id");
-            localStorage.removeItem("al_tayyar_session_token");
+            setCachedToken(null);
+            localforage.removeItem("offline_current_user").catch(err => console.error("Error clearing offline user:", err));
             if (hadToken) {
                 window.location.reload();
             }

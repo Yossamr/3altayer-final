@@ -340,7 +340,14 @@ export const AppProvider: React.FC<{
         const cachedZones = await localforage.getItem('offline_zones');
         if (cachedZones) setZones(cachedZones as Zone[]);
         const cachedCurrentUser = await localforage.getItem('offline_current_user');
-        if (cachedCurrentUser) setCurrentUser(cachedCurrentUser as User);
+        const hasToken = !!getCachedToken();
+        if (hasToken && cachedCurrentUser) {
+          setCurrentUser(cachedCurrentUser as User);
+        } else {
+          setCurrentUser(null);
+          await localforage.removeItem('offline_current_user');
+          localStorage.removeItem('al_tayyar_user_id');
+        }
         await initializeDatabase();
         setIsDbReady(true);
         const savedUserId = localStorage.getItem('al_tayyar_user_id');
