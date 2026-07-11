@@ -43,10 +43,14 @@ export const AdminNotificationsTab: React.FC = () => {
       // In a real app, you'd have a backend endpoint to bulk send.
       // For now, since triggerPushNotification takes targetUserId, we loop.
       // Since this is just a quick internal implementation, it works for limited users.
-      const promises = targetUsers.map(user => triggerPushNotification(user.id, title, body, {
-        type: 'ADMIN_ANNOUNCEMENT'
-      }));
-      await Promise.all(promises);
+      const batchSize = 50;
+      for (let i = 0; i < targetUsers.length; i += batchSize) {
+        const batch = targetUsers.slice(i, i + batchSize);
+        const promises = batch.map(user => triggerPushNotification(user.id, title, body, {
+          type: 'ADMIN_ANNOUNCEMENT'
+        }));
+        await Promise.all(promises);
+      }
       toast.success(`Notification sent to ${targetUsers.length} users successfully!`);
       setTitle('');
       setBody('');
