@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { firebaseAdminAuth, getMessaging } from "./services/firebaseAdmin.js";
 import { INITIAL_ZONES } from "./constants.js";
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 
 export const saveFcmToken = async (userId: string, token: string) => {
@@ -495,13 +495,28 @@ app.get("/api/driver-applications", authenticate, requireRoles(["ADMIN", "EMPLOY
   }
 });
 
+
+const driverAppActionSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  password: z.string().min(6).optional()
+}).refine(data => {
+  if (data.action === 'approve') {
+    return !!data.password && data.password.length >= 6;
+  }
+  return true;
+}, {
+  message: "Password is required and must be at least 6 characters when approving",
+  path: ["password"]
+});
+
 app.post("/api/driver-applications/:id/action", authenticate, requireRoles(["ADMIN", "EMPLOYEE"]), async (req, res) => {
   try {
     const id = parseInt(req.params.id as string);
-    const { action } = req.body; // 'approve' or 'reject'
-    if (action !== 'approve' && action !== 'reject') {
-      return res.status(400).json({ success: false, message: "Invalid action" });
+    const parsed = driverAppActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0].message });
     }
+    const { action, password } = parsed.data;
 
     if (action === 'approve') {
       // Fetch application details
@@ -512,8 +527,8 @@ app.post("/api/driver-applications/:id/action", authenticate, requireRoles(["ADM
         // Check if user already exists
         const existing = await db.select().from(schema.users).where(eq(schema.users.phone, cleanPhone));
         if (existing.length === 0) {
-          // Create a new driver user with default password '1234'
-          const hashedPassword = await argon2.hash("1234");
+          // Create a new driver user with the provided password
+          const hashedPassword = await argon2.hash(password as string);
           await db.insert(schema.users).values({
             name: appData.name,
             phone: cleanPhone,

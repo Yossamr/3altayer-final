@@ -9,6 +9,7 @@ export const NewDriversTab: React.FC = () => {
   const [apps, setApps] = useState<DriverApplication[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [passwords, setPasswords] = useState<Record<number, string>>({});
 
   const fetchApps = async () => {
     setIsLoading(true);
@@ -30,11 +31,19 @@ export const NewDriversTab: React.FC = () => {
   }, []);
 
   const handleAction = async (id: number, action: 'approve' | 'reject') => {
+    if (action === 'approve') {
+      const pwd = passwords[id] || '';
+      if (pwd.length < 6) {
+        toast.error(isAr ? 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' : 'Password must be at least 6 characters');
+        return;
+      }
+    }
+
     try {
       const res = await fetch(`/api/driver-applications/${id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ action, password: passwords[id] })
       });
       const data = await res.json();
       if (data.success) {
@@ -89,7 +98,16 @@ export const NewDriversTab: React.FC = () => {
                   </button>
                 )}
               </div>
-              <div className="flex gap-2 mt-2">
+              <div className="mt-2">
+                <input
+                  type="text"
+                  placeholder={isAr ? 'كلمة المرور المؤقتة (6 أحرف على الأقل)' : 'Temporary Password (min 6 chars)'}
+                  value={passwords[app.id] || ''}
+                  onChange={(e) => setPasswords(prev => ({ ...prev, [app.id]: e.target.value }))}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-xl p-2 text-sm bg-gray-50 dark:bg-gray-700/50 outline-none focus:border-primary focus:ring-1 focus:ring-primary mb-2"
+                />
+              </div>
+              <div className="flex gap-2">
                 <button onClick={() => handleAction(app.id, 'reject')} className="flex-1 py-2 bg-red-50 text-red-600 hover:bg-red-100 font-bold rounded-xl flex justify-center items-center gap-1 transition-colors">
                   <X size={16} /> {isAr ? 'رفض' : 'Reject'}
                 </button>
