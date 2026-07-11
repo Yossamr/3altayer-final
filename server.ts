@@ -1637,331 +1637,341 @@ app.post("/api/rpc", authenticate, async (req: AuthenticatedRequest, res) => {
   }
 });
 
+async function configureDatabasePragmas() {
+  const targetUrl = process.env.TURSO_DB_URL || "file:local.db";
+  if (targetUrl.startsWith("file:") || !process.env.TURSO_DB_URL) {
+    try {
+      await dbClient.execute("PRAGMA journal_mode = WAL;");
+      await dbClient.execute("PRAGMA synchronous = NORMAL;");
+      const journalMode = await dbClient.execute("PRAGMA journal_mode;");
+      console.log(`ℹ️ SQLite Local DB Journal Mode configured: ${journalMode.rows?.[0]?.[0] || 'WAL'}`);
+    } catch (pragmaErr: any) {
+      console.warn("⚠️ Warning: Could not apply SQLite PRAGMA tuning:", pragmaErr.message);
+    }
+  } else {
+    console.log("ℹ️ Remote LibSQL database detected (WAL and transaction logging is managed server-side by Turso).");
+  }
+}
+
+async function ensureDatabaseTables() {
+  // Create tables if they do not exist
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL,
+        wallet_balance REAL DEFAULT 0,
+        cash_collected REAL DEFAULT 0,
+        cash_limit REAL DEFAULT 2000,
+        is_online INTEGER DEFAULT 0,
+        is_blocked INTEGER DEFAULT 0,
+        address_details TEXT,
+        zone_id TEXT,
+        current_lat REAL,
+        current_lng REAL,
+        saved_addresses_json TEXT,
+        settlement_requested INTEGER DEFAULT 0,
+        last_moved_at INTEGER,
+        last_seen_at INTEGER,
+        avg_delivery_time REAL,
+        completed_orders_count INTEGER DEFAULT 0,
+        total_distance REAL DEFAULT 0,
+        location_pulse INTEGER DEFAULT 0,
+        firebase_uid TEXT UNIQUE,
+        email TEXT
+      )
+    `);
+    console.log("✅ Users table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create users table:", e.message || e);
+  }
+
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS zones (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        price REAL NOT NULL,
+        prices_json TEXT
+      )
+    `);
+    console.log("✅ Zones table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create zones table:", e.message || e);
+  }
+
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        driver_id TEXT,
+        store_id TEXT,
+        pickup_address TEXT,
+        delivery_address_json TEXT,
+        items TEXT,
+        price REAL,
+        item_cost REAL DEFAULT 0,
+        payer TEXT,
+        recipient_phone TEXT,
+        timeline_json TEXT,
+        issues_json TEXT,
+        created_at INTEGER,
+        is_tracking INTEGER DEFAULT 0,
+        delivery_code TEXT,
+        notes TEXT,
+        allow_double_order INTEGER DEFAULT 1,
+        cancellation_request_json TEXT,
+        assigned_drivers_json TEXT,
+        is_batched INTEGER DEFAULT 0,
+        batch_id TEXT,
+        proof_image_url TEXT,
+        delay_reason TEXT,
+        bids_json TEXT,
+        rating INTEGER,
+        rating_comment TEXT,
+        time_taken_minutes REAL
+      )
+    `);
+    console.log("✅ Orders table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create orders table:", e.message || e);
+  }
+
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        sender_name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        audio TEXT,
+        image TEXT,
+        created_at INTEGER,
+        is_read INTEGER DEFAULT 0
+      )
+    `);
+    console.log("✅ Messages table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create messages table:", e.message || e);
+  }
+
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        type TEXT,
+        related_id TEXT,
+        is_read INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    console.log("✅ Notifications table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create notifications table:", e.message || e);
+  }
+
+  try {
+    await dbClient.execute(`
+      CREATE TABLE IF NOT EXISTS zone_waitlist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        zone_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT,
+        name TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    console.log("✅ Zone waitlist table ensured.");
+  } catch (e: any) {
+    console.error("❌ Failed to create zone_waitlist table:", e.message || e);
+  }
+}
+
+async function applyDatabaseMigrations() {
+  // Run migrations for any newly introduced columns
+  try { await dbClient.execute("ALTER TABLE users ADD COLUMN firebase_uid TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE users ADD COLUMN email TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE users ADD COLUMN fcm_token TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid)"); } catch (e: any) {}
+
+  // Apply database indexes for performance optimization
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS phone_idx ON users(phone)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS users_zone_id_idx ON users(zone_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS status_idx ON orders(status)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS driver_id_idx ON orders(driver_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS customer_id_idx ON orders(customer_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS orders_zone_id_idx ON orders(zone_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders(created_at DESC)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS messages_order_id_idx ON messages(order_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications(user_id)"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE INDEX IF NOT EXISTS zone_waitlist_zone_id_idx ON zone_waitlist(zone_id)"); } catch (e: any) {}
+
+  // Coverage Zone Management System column migrations
+  try { await dbClient.execute("ALTER TABLE orders ADD COLUMN zone_id TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN name_ar TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN name_en TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN governorate_code TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN status TEXT DEFAULT 'inactive'"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN center_lat REAL"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN center_lng REAL"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN radius_km REAL"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN polygon_geojson TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN monthly_order_limit INTEGER"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN created_at TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("ALTER TABLE zones ADD COLUMN updated_at TEXT"); } catch (e: any) {}
+  try { await dbClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_zones_governorate_code ON zones(governorate_code)"); } catch (e: any) {}
+  try { await dbClient.execute("UPDATE zones SET status = 'active' WHERE id LIKE 'gov-%'"); } catch (e: any) {}
+}
+
+async function seedDatabaseData() {
+  // Seed default zones if empty or missing (e.g. newly added governorate zones)
+  try {
+    console.log("🌱 Checking and seeding INITIAL_ZONES...");
+    const existingZones = await db.select().from(schema.zones);
+    const existingIds = new Set(existingZones.map((z: any) => z.id));
+
+    const GOV_INFO: Record<string, { code: string, en: string, lat: number, lng: number, radius: number }> = {
+      'gov-cairo': { code: 'CAI', en: 'Cairo', lat: 30.0444, lng: 31.2357, radius: 40 },
+      'gov-giza': { code: 'GIZ', en: 'Giza', lat: 30.0131, lng: 31.2089, radius: 35 },
+      'gov-alex': { code: 'ALX', en: 'Alexandria', lat: 31.2001, lng: 29.9187, radius: 30 },
+      'gov-dakahlia': { code: 'DKH', en: 'Dakahlia', lat: 31.0413, lng: 31.3785, radius: 50 },
+      'gov-redsea': { code: 'RED', en: 'Red Sea', lat: 27.2579, lng: 33.8116, radius: 100 },
+      'gov-beheira': { code: 'BEH', en: 'Beheira', lat: 31.0361, lng: 30.4161, radius: 60 },
+      'gov-fayoum': { code: 'FAY', en: 'Fayoum', lat: 29.3084, lng: 30.8428, radius: 30 },
+      'gov-gharbia': { code: 'GHA', en: 'Gharbia', lat: 30.7865, lng: 30.9999, radius: 25 },
+      'gov-ismailia': { code: 'ISM', en: 'Ismailia', lat: 30.6043, lng: 32.2723, radius: 25 },
+      'gov-monufia': { code: 'MNF', en: 'Monufia', lat: 30.5242, lng: 30.9919, radius: 30 },
+      'gov-minya': { code: 'MIN', en: 'Minya', lat: 28.0991, lng: 30.7562, radius: 50 },
+      'gov-qalyubia': { code: 'QLY', en: 'Qalyubia', lat: 30.4101, lng: 31.1856, radius: 30 },
+      'gov-newvalley': { code: 'WAD', en: 'New Valley', lat: 25.4514, lng: 30.5487, radius: 150 },
+      'gov-suez': { code: 'SUZ', en: 'Suez', lat: 29.9668, lng: 32.5498, radius: 25 },
+      'gov-aswan': { code: 'ASW', en: 'Aswan', lat: 24.0889, lng: 32.8998, radius: 40 },
+      'gov-asyut': { code: 'AST', en: 'Asyut', lat: 27.1783, lng: 31.1859, radius: 45 },
+      'gov-benisuef': { code: 'BNS', en: 'Beni Suef', lat: 29.0744, lng: 31.0978, radius: 30 },
+      'gov-portsaid': { code: 'PSD', en: 'Port Said', lat: 31.2565, lng: 32.2841, radius: 20 },
+      'gov-damietta': { code: 'DAM', en: 'Damietta', lat: 31.4175, lng: 31.8144, radius: 25 },
+      'gov-sharqia': { code: 'SHR', en: 'Sharqia', lat: 30.7327, lng: 31.7136, radius: 45 },
+      'gov-southsinai': { code: 'SIN', en: 'South Sinai', lat: 28.5383, lng: 33.8301, radius: 80 },
+      'gov-kafralsheikh': { code: 'KFR', en: 'Kafr El-Sheikh', lat: 31.1107, lng: 30.9388, radius: 35 },
+      'gov-matrouh': { code: 'MTR', en: 'Matrouh', lat: 31.3543, lng: 27.2373, radius: 80 },
+      'gov-qena': { code: 'QEN', en: 'Qena', lat: 26.1551, lng: 32.7160, radius: 40 },
+      'gov-northsinai': { code: 'NSN', en: 'North Sinai', lat: 30.8025, lng: 33.7997, radius: 70 },
+      'gov-sohag': { code: 'SOH', en: 'Sohag', lat: 26.5591, lng: 31.6957, radius: 45 },
+      'gov-luxor': { code: 'LUX', en: 'Luxor', lat: 25.6872, lng: 32.6396, radius: 25 },
+      'gov-abu-homos': { code: 'ABH', en: 'Abu Homos', lat: 31.0116, lng: 30.3129, radius: 20 }
+    };
+
+    let seededCount = 0;
+    let updatedCount = 0;
+    for (const zone of INITIAL_ZONES) {
+      const isGov = zone.id.startsWith('gov-');
+      const nameAr = zone.name;
+      const nameEn = GOV_INFO[zone.id]?.en || zone.id;
+      const govCode = GOV_INFO[zone.id]?.code || null;
+      // By default, all initial zones and governorates are active
+      const status = 'active';
+      const centerLat = GOV_INFO[zone.id]?.lat || 31.0361;
+      const centerLng = GOV_INFO[zone.id]?.lng || 30.4161;
+      const radiusKm = GOV_INFO[zone.id]?.radius || (isGov ? 50.0 : 5.0);
+
+      if (!existingIds.has(zone.id)) {
+        await db.insert(schema.zones).values({
+          id: zone.id,
+          name: zone.name,
+          price: zone.price,
+          pricesJson: JSON.stringify(zone.prices),
+          nameAr,
+          nameEn,
+          governorateCode: govCode,
+          status,
+          centerLat,
+          centerLng,
+          radiusKm,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        seededCount++;
+      } else {
+        // Backfill missing info for existing zones
+        const existing = existingZones.find((z: any) => z.id === zone.id);
+        if (existing && (!existing.nameAr || !existing.status)) {
+          await db.update(schema.zones).set({
+            nameAr: existing.nameAr || nameAr,
+            nameEn: existing.nameEn || nameEn,
+            governorateCode: existing.governorateCode || govCode,
+            status: existing.status || status,
+            centerLat: existing.centerLat || centerLat,
+            centerLng: existing.centerLng || centerLng,
+            radiusKm: existing.radiusKm || radiusKm,
+            updatedAt: new Date().toISOString()
+          }).where(eq(schema.zones.id, zone.id));
+          updatedCount++;
+        }
+      }
+    }
+    if (seededCount > 0 || updatedCount > 0) {
+      console.log(`🌱 Successfully seeded ${seededCount} new zones and backfilled ${updatedCount} existing zones.`);
+    } else {
+      console.log("🌱 All initial zones are already present and fully backfilled.");
+    }
+  } catch (e: any) {
+    console.error("❌ Failed to seed zones:", e.message || e);
+  }
+
+  // Seed default demo users if missing
+  try {
+    console.log("🌱 Checking default demo users existence...");
+    const demoUsers = [
+      { name: "General Manager", phone: "00000000000", password: "5276", role: "manager", zoneId: "zone-1" },
+      { name: "Responsible Employee", phone: "02222222222", password: "1234", role: "employee", zoneId: "zone-1" },
+      { name: "Test Agent", phone: "01111111111", password: "1234", role: "agent", zoneId: "zone-1" },
+      { name: "Test Customer", phone: "01222222222", password: "1234", role: "customer", zoneId: "zone-1" },
+    ];
+
+    for (const du of demoUsers) {
+      const existing = await db.select().from(schema.users).where(eq(schema.users.phone, du.phone));
+      if (existing.length === 0) {
+        const hashedPw = await argon2.hash(du.password);
+        await db.insert(schema.users).values({
+          name: du.name,
+          phone: du.phone,
+          password: hashedPw,
+          role: du.role,
+          zoneId: du.zoneId,
+          walletBalance: 0,
+          cashCollected: 0,
+          cashLimit: 2000,
+          isOnline: false,
+          isBlocked: false,
+        });
+        console.log(`🌱 Successfully seeded missing demo user: ${du.name} (${du.phone})`);
+      } else {
+        console.log(`🌱 Demo user ${du.name} (${du.phone}) already exists in the database.`);
+      }
+    }
+  } catch (e: any) {
+    console.error("❌ Failed to seed demo users:", e.message || e);
+  }
+}
+
 async function startServer() {
   console.log("🛠️ Starting database initialization & bootstrap...");
   try {
     initDbIfNeeded();
-
-    // Enable WAL (Write-Ahead Logging) and set synchrony to NORMAL for local databases
-    const targetUrl = process.env.TURSO_DB_URL || "file:local.db";
-    if (targetUrl.startsWith("file:") || !process.env.TURSO_DB_URL) {
-      try {
-        await dbClient.execute("PRAGMA journal_mode = WAL;");
-        await dbClient.execute("PRAGMA synchronous = NORMAL;");
-        const journalMode = await dbClient.execute("PRAGMA journal_mode;");
-        console.log(`ℹ️ SQLite Local DB Journal Mode configured: ${journalMode.rows?.[0]?.[0] || 'WAL'}`);
-      } catch (pragmaErr: any) {
-        console.warn("⚠️ Warning: Could not apply SQLite PRAGMA tuning:", pragmaErr.message);
-      }
-    } else {
-      console.log("ℹ️ Remote LibSQL database detected (WAL and transaction logging is managed server-side by Turso).");
-    }
-    
-    // Create tables if they do not exist
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          phone TEXT NOT NULL UNIQUE,
-          password TEXT NOT NULL,
-          role TEXT NOT NULL,
-          wallet_balance REAL DEFAULT 0,
-          cash_collected REAL DEFAULT 0,
-          cash_limit REAL DEFAULT 2000,
-          is_online INTEGER DEFAULT 0,
-          is_blocked INTEGER DEFAULT 0,
-          address_details TEXT,
-          zone_id TEXT,
-          current_lat REAL,
-          current_lng REAL,
-          saved_addresses_json TEXT,
-          settlement_requested INTEGER DEFAULT 0,
-          last_moved_at INTEGER,
-          last_seen_at INTEGER,
-          avg_delivery_time REAL,
-          completed_orders_count INTEGER DEFAULT 0,
-          total_distance REAL DEFAULT 0,
-          location_pulse INTEGER DEFAULT 0,
-          firebase_uid TEXT UNIQUE,
-          email TEXT
-        )
-      `);
-      console.log("✅ Users table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create users table:", e.message || e);
-    }
-
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS zones (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          price REAL NOT NULL,
-          prices_json TEXT
-        )
-      `);
-      console.log("✅ Zones table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create zones table:", e.message || e);
-    }
-
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS orders (
-          id TEXT PRIMARY KEY,
-          type TEXT NOT NULL,
-          status TEXT NOT NULL,
-          customer_id TEXT NOT NULL,
-          driver_id TEXT,
-          store_id TEXT,
-          pickup_address TEXT,
-          delivery_address_json TEXT,
-          items TEXT,
-          price REAL,
-          item_cost REAL DEFAULT 0,
-          payer TEXT,
-          recipient_phone TEXT,
-          timeline_json TEXT,
-          issues_json TEXT,
-          created_at INTEGER,
-          is_tracking INTEGER DEFAULT 0,
-          delivery_code TEXT,
-          notes TEXT,
-          allow_double_order INTEGER DEFAULT 1,
-          cancellation_request_json TEXT,
-          assigned_drivers_json TEXT,
-          is_batched INTEGER DEFAULT 0,
-          batch_id TEXT,
-          proof_image_url TEXT,
-          delay_reason TEXT,
-          bids_json TEXT,
-          rating INTEGER,
-          rating_comment TEXT,
-          time_taken_minutes REAL
-        )
-      `);
-      console.log("✅ Orders table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create orders table:", e.message || e);
-    }
-
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS messages (
-          id TEXT PRIMARY KEY,
-          order_id TEXT NOT NULL,
-          sender_id TEXT NOT NULL,
-          sender_name TEXT NOT NULL,
-          text TEXT NOT NULL,
-          audio TEXT,
-          image TEXT,
-          created_at INTEGER,
-          is_read INTEGER DEFAULT 0
-        )
-      `);
-      console.log("✅ Messages table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create messages table:", e.message || e);
-    }
-
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS notifications (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          title TEXT NOT NULL,
-          body TEXT NOT NULL,
-          type TEXT,
-          related_id TEXT,
-          is_read INTEGER DEFAULT 0,
-          created_at INTEGER NOT NULL
-        )
-      `);
-      console.log("✅ Notifications table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create notifications table:", e.message || e);
-    }
-
-    try {
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS zone_waitlist (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          zone_id TEXT NOT NULL,
-          phone TEXT NOT NULL,
-          email TEXT,
-          name TEXT,
-          created_at INTEGER NOT NULL
-        )
-      `);
-      console.log("✅ Zone waitlist table ensured.");
-    } catch (e: any) {
-      console.error("❌ Failed to create zone_waitlist table:", e.message || e);
-    }
-
-    // Run migrations for any newly introduced columns
-    try { await dbClient.execute("ALTER TABLE users ADD COLUMN firebase_uid TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE users ADD COLUMN email TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE users ADD COLUMN fcm_token TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid)"); } catch (e: any) {}
-
-    // Apply database indexes for performance optimization
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS phone_idx ON users(phone)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS users_zone_id_idx ON users(zone_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS status_idx ON orders(status)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS driver_id_idx ON orders(driver_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS customer_id_idx ON orders(customer_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS orders_zone_id_idx ON orders(zone_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders(created_at DESC)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS messages_order_id_idx ON messages(order_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications(user_id)"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE INDEX IF NOT EXISTS zone_waitlist_zone_id_idx ON zone_waitlist(zone_id)"); } catch (e: any) {}
-
-    // Coverage Zone Management System column migrations
-    try { await dbClient.execute("ALTER TABLE orders ADD COLUMN zone_id TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN name_ar TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN name_en TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN governorate_code TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN status TEXT DEFAULT 'inactive'"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN center_lat REAL"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN center_lng REAL"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN radius_km REAL"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN polygon_geojson TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN monthly_order_limit INTEGER"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN created_at TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("ALTER TABLE zones ADD COLUMN updated_at TEXT"); } catch (e: any) {}
-    try { await dbClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_zones_governorate_code ON zones(governorate_code)"); } catch (e: any) {}
-    try { await dbClient.execute("UPDATE zones SET status = 'active' WHERE id LIKE 'gov-%'"); } catch (e: any) {}
-
-    // Seed default zones if empty or missing (e.g. newly added governorate zones)
-    try {
-      console.log("🌱 Checking and seeding INITIAL_ZONES...");
-      const existingZones = await db.select().from(schema.zones);
-      const existingIds = new Set(existingZones.map((z: any) => z.id));
-
-      const GOV_INFO: Record<string, { code: string, en: string, lat: number, lng: number, radius: number }> = {
-        'gov-cairo': { code: 'CAI', en: 'Cairo', lat: 30.0444, lng: 31.2357, radius: 40 },
-        'gov-giza': { code: 'GIZ', en: 'Giza', lat: 30.0131, lng: 31.2089, radius: 35 },
-        'gov-alex': { code: 'ALX', en: 'Alexandria', lat: 31.2001, lng: 29.9187, radius: 30 },
-        'gov-dakahlia': { code: 'DKH', en: 'Dakahlia', lat: 31.0413, lng: 31.3785, radius: 50 },
-        'gov-redsea': { code: 'RED', en: 'Red Sea', lat: 27.2579, lng: 33.8116, radius: 100 },
-        'gov-beheira': { code: 'BEH', en: 'Beheira', lat: 31.0361, lng: 30.4161, radius: 60 },
-        'gov-fayoum': { code: 'FAY', en: 'Fayoum', lat: 29.3084, lng: 30.8428, radius: 30 },
-        'gov-gharbia': { code: 'GHA', en: 'Gharbia', lat: 30.7865, lng: 30.9999, radius: 25 },
-        'gov-ismailia': { code: 'ISM', en: 'Ismailia', lat: 30.6043, lng: 32.2723, radius: 25 },
-        'gov-monufia': { code: 'MNF', en: 'Monufia', lat: 30.5242, lng: 30.9919, radius: 30 },
-        'gov-minya': { code: 'MIN', en: 'Minya', lat: 28.0991, lng: 30.7562, radius: 50 },
-        'gov-qalyubia': { code: 'QLY', en: 'Qalyubia', lat: 30.4101, lng: 31.1856, radius: 30 },
-        'gov-newvalley': { code: 'WAD', en: 'New Valley', lat: 25.4514, lng: 30.5487, radius: 150 },
-        'gov-suez': { code: 'SUZ', en: 'Suez', lat: 29.9668, lng: 32.5498, radius: 25 },
-        'gov-aswan': { code: 'ASW', en: 'Aswan', lat: 24.0889, lng: 32.8998, radius: 40 },
-        'gov-asyut': { code: 'AST', en: 'Asyut', lat: 27.1783, lng: 31.1859, radius: 45 },
-        'gov-benisuef': { code: 'BNS', en: 'Beni Suef', lat: 29.0744, lng: 31.0978, radius: 30 },
-        'gov-portsaid': { code: 'PSD', en: 'Port Said', lat: 31.2565, lng: 32.2841, radius: 20 },
-        'gov-damietta': { code: 'DAM', en: 'Damietta', lat: 31.4175, lng: 31.8144, radius: 25 },
-        'gov-sharqia': { code: 'SHR', en: 'Sharqia', lat: 30.7327, lng: 31.7136, radius: 45 },
-        'gov-southsinai': { code: 'SIN', en: 'South Sinai', lat: 28.5383, lng: 33.8301, radius: 80 },
-        'gov-kafralsheikh': { code: 'KFR', en: 'Kafr El-Sheikh', lat: 31.1107, lng: 30.9388, radius: 35 },
-        'gov-matrouh': { code: 'MTR', en: 'Matrouh', lat: 31.3543, lng: 27.2373, radius: 80 },
-        'gov-qena': { code: 'QEN', en: 'Qena', lat: 26.1551, lng: 32.7160, radius: 40 },
-        'gov-northsinai': { code: 'NSN', en: 'North Sinai', lat: 30.8025, lng: 33.7997, radius: 70 },
-        'gov-sohag': { code: 'SOH', en: 'Sohag', lat: 26.5591, lng: 31.6957, radius: 45 },
-        'gov-luxor': { code: 'LUX', en: 'Luxor', lat: 25.6872, lng: 32.6396, radius: 25 },
-        'gov-abu-homos': { code: 'ABH', en: 'Abu Homos', lat: 31.0116, lng: 30.3129, radius: 20 }
-      };
-
-      let seededCount = 0;
-      let updatedCount = 0;
-      for (const zone of INITIAL_ZONES) {
-        const isGov = zone.id.startsWith('gov-');
-        const nameAr = zone.name;
-        const nameEn = GOV_INFO[zone.id]?.en || zone.id;
-        const govCode = GOV_INFO[zone.id]?.code || null;
-        // By default, all initial zones and governorates are active
-        const status = 'active';
-        const centerLat = GOV_INFO[zone.id]?.lat || 31.0361;
-        const centerLng = GOV_INFO[zone.id]?.lng || 30.4161;
-        const radiusKm = GOV_INFO[zone.id]?.radius || (isGov ? 50.0 : 5.0);
-
-        if (!existingIds.has(zone.id)) {
-          await db.insert(schema.zones).values({
-            id: zone.id,
-            name: zone.name,
-            price: zone.price,
-            pricesJson: JSON.stringify(zone.prices),
-            nameAr,
-            nameEn,
-            governorateCode: govCode,
-            status,
-            centerLat,
-            centerLng,
-            radiusKm,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-          seededCount++;
-        } else {
-          // Backfill missing info for existing zones
-          const existing = existingZones.find((z: any) => z.id === zone.id);
-          if (existing && (!existing.nameAr || !existing.status)) {
-            await db.update(schema.zones).set({
-              nameAr: existing.nameAr || nameAr,
-              nameEn: existing.nameEn || nameEn,
-              governorateCode: existing.governorateCode || govCode,
-              status: existing.status || status,
-              centerLat: existing.centerLat || centerLat,
-              centerLng: existing.centerLng || centerLng,
-              radiusKm: existing.radiusKm || radiusKm,
-              updatedAt: new Date().toISOString()
-            }).where(eq(schema.zones.id, zone.id));
-            updatedCount++;
-          }
-        }
-      }
-      if (seededCount > 0 || updatedCount > 0) {
-        console.log(`🌱 Successfully seeded ${seededCount} new zones and backfilled ${updatedCount} existing zones.`);
-      } else {
-        console.log("🌱 All initial zones are already present and fully backfilled.");
-      }
-    } catch (e: any) {
-      console.error("❌ Failed to seed zones:", e.message || e);
-    }
-
-    // Seed default demo users if missing
-    try {
-      console.log("🌱 Checking default demo users existence...");
-      const demoUsers = [
-        { name: "General Manager", phone: "00000000000", password: "5276", role: "manager", zoneId: "zone-1" },
-        { name: "Responsible Employee", phone: "02222222222", password: "1234", role: "employee", zoneId: "zone-1" },
-        { name: "Test Agent", phone: "01111111111", password: "1234", role: "agent", zoneId: "zone-1" },
-        { name: "Test Customer", phone: "01222222222", password: "1234", role: "customer", zoneId: "zone-1" },
-      ];
-
-      for (const du of demoUsers) {
-        const existing = await db.select().from(schema.users).where(eq(schema.users.phone, du.phone));
-        if (existing.length === 0) {
-          const hashedPw = await argon2.hash(du.password);
-          await db.insert(schema.users).values({
-            name: du.name,
-            phone: du.phone,
-            password: hashedPw,
-            role: du.role,
-            zoneId: du.zoneId,
-            walletBalance: 0,
-            cashCollected: 0,
-            cashLimit: 2000,
-            isOnline: false,
-            isBlocked: false,
-          });
-          console.log(`🌱 Successfully seeded missing demo user: ${du.name} (${du.phone})`);
-        } else {
-          console.log(`🌱 Demo user ${du.name} (${du.phone}) already exists in the database.`);
-        }
-      }
-    } catch (e: any) {
-      console.error("❌ Failed to seed demo users:", e.message || e);
-    }
-
+    await configureDatabasePragmas();
+    await ensureDatabaseTables();
+    await applyDatabaseMigrations();
+    await seedDatabaseData();
   } catch (e: any) {
     console.warn("⚠️ Skipping database bootstrap:", e.message || e);
   }
@@ -1986,5 +1996,4 @@ async function startServer() {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
-
 if (process.env.NODE_ENV !== "test") { startServer(); }
