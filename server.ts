@@ -134,9 +134,9 @@ function rateLimit(limit: number, windowMs: number) {
 }
 
 // --- SECURE CRYPTO SESSIONS ---
-let SESSION_SECRET: string = process.env.SESSION_SECRET || "al-tayyar-stable-cryptographic-session-secret-2026";
+let SESSION_SECRET: string = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 if (!process.env.SESSION_SECRET) {
-  console.log("ℹ️ Using stable fallback SESSION_SECRET for development persistence across server restarts.");
+  console.log("ℹ️ Using random fallback SESSION_SECRET. Session persistence across server restarts will be lost. Set SESSION_SECRET to prevent this.");
 }
 
 function generateToken(userId: number | string): string {
@@ -218,30 +218,6 @@ function requireRoles(allowedRoles: string[]) {
 export const loginSchema = z.object({
   phone: z.string().trim().min(1),
   password: z.string().min(1)
-});
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-app.post("/api/test-order-load", async (req, res) => {
-  try {
-    const { customerId } = req.body;
-    await dbClient.execute(`
-      INSERT INTO orders (type, status, customer_id, created_at, zone_id)
-      VALUES ('delivery', 'PENDING', ${Number(customerId) || 1}, '${new Date().toISOString()}', 'zone-1')
-    `);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 
