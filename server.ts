@@ -134,9 +134,10 @@ function rateLimit(limit: number, windowMs: number) {
 }
 
 // --- SECURE CRYPTO SESSIONS ---
-let SESSION_SECRET: string = process.env.SESSION_SECRET || "al-tayyar-stable-cryptographic-session-secret-2026";
+let SESSION_SECRET: string = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 if (!process.env.SESSION_SECRET) {
-  console.log("ℹ️ Using stable fallback SESSION_SECRET for development persistence across server restarts.");
+  console.warn("⚠️ WARNING: No SESSION_SECRET environment variable provided. Using a random secret for this process.");
+  console.warn("⚠️ User sessions will NOT persist across server restarts. Set SESSION_SECRET for production.");
 }
 
 function generateToken(userId: number | string): string {
