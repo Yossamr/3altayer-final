@@ -1694,7 +1694,7 @@ export const AppProvider: React.FC<{
   const sendMessage = async (orderId: string, text: string, audio?: string, image?: string) => {
     if (!currentUser) return;
     const newMessage: Message = {
-      id: `msg-${Date.now()}-${Math.random()}`,
+      id: `msg-${crypto.randomUUID()}`,
       orderId,
       senderId: currentUser.id,
       senderName: currentUser.name,
