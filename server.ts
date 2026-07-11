@@ -221,30 +221,6 @@ export const loginSchema = z.object({
 });
 
 
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-
-
-// TEST ENDPOINT FOR LOAD TESTING (Bypasses Auth & Rate Limits)
-app.post("/api/test-order-load", async (req, res) => {
-  try {
-    const { customerId } = req.body;
-    await dbClient.execute(`
-      INSERT INTO orders (type, status, customer_id, created_at, zone_id)
-      VALUES ('delivery', 'PENDING', ${Number(customerId) || 1}, '${new Date().toISOString()}', 'zone-1')
-    `);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
 // Account Deletion (Apple Guideline 5.1.1(v))
 app.post("/api/delete-account", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
