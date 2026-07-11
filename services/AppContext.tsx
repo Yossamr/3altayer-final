@@ -1272,7 +1272,11 @@ export const AppProvider: React.FC<{
     return bestFallbackDrivers[0]?.driver.id;
   };
   const createOrder = async (orderData: Partial<Order>): Promise<boolean> => {
-    const deliveryCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const array = new Uint32Array(6);
+    window.crypto.getRandomValues(array);
+    const deliveryCode = Array.from(array).map(x => chars[x % chars.length]).join('');
+
     const newId = `ORD-${Date.now().toString().slice(-6)}`;
 
     // Automated Dispatch Logic - find best drivers for recommendation/targeting
