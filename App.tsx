@@ -45,8 +45,8 @@ const ContactActionModal: React.FC<{
     onClose();
   };
   const handleWhatsApp = () => {
-    // Remove leading 0 and add 20
-    const waNumber = `20${phone.replace(/^0+/, '')}`;
+    // Remove leading 0 and add 2
+    const waNumber = `2${phone.replace(/^0+/, '')}`;
     window.open(`https://wa.me/${waNumber}`, '_blank');
     onClose();
   };
