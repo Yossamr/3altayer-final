@@ -77,7 +77,10 @@ function initDbIfNeeded() {
   let dbUrl = process.env.TURSO_DB_URL;
   let dbToken = process.env.TURSO_DB_TOKEN;
   
-  if (!dbUrl) {
+  if (process.env.NODE_ENV === "test") {
+    dbUrl = "file:test.db";
+    dbToken = undefined;
+  } else if (!dbUrl) {
     console.warn("⚠️ Warning: TURSO_DB_URL is not defined. Falling back to local SQLite database 'file:local.db'.");
     dbUrl = "file:local.db";
     dbToken = undefined;
@@ -1661,14 +1664,14 @@ app.post("/api/rpc", authenticate, async (req: AuthenticatedRequest, res) => {
   }
 });
 
-async function startServer() {
+export async function initializeDatabase() {
   console.log("🛠️ Starting database initialization & bootstrap...");
   try {
     initDbIfNeeded();
 
     // Enable WAL (Write-Ahead Logging) and set synchrony to NORMAL for local databases
-    const targetUrl = process.env.TURSO_DB_URL || "file:local.db";
-    if (targetUrl.startsWith("file:") || !process.env.TURSO_DB_URL) {
+    const targetUrl = process.env.NODE_ENV === "test" ? "file:test.db" : (process.env.TURSO_DB_URL || "file:local.db");
+    if (targetUrl.startsWith("file:") || (!process.env.TURSO_DB_URL && process.env.NODE_ENV !== "test")) {
       try {
         await dbClient.execute("PRAGMA journal_mode = WAL;");
         await dbClient.execute("PRAGMA synchronous = NORMAL;");
@@ -1989,6 +1992,10 @@ async function startServer() {
   } catch (e: any) {
     console.warn("⚠️ Skipping database bootstrap:", e.message || e);
   }
+}
+
+async function startServer() {
+  await initializeDatabase();
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -2012,3 +2019,5 @@ async function startServer() {
 }
 
 if (process.env.NODE_ENV !== "test") { startServer(); }
+
+export { app };

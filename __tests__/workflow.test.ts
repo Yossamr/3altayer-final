@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { WORKFLOW_CONFIG } from '../constants';
 import { OrderType, OrderStatus } from '../types';
