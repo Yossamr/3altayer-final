@@ -47,30 +47,11 @@ export const TrackingMapView: React.FC<TrackingMapViewProps> = ({
   } = useLanguage();
   const {
     calculateDistance,
-    syncDriverLocation
+    users
   } = useApp();
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
   const [eta, setEta] = useState<string | null>(null);
-  const [currentDriver, setCurrentDriver] = useState<User>(driver);
-
-  // Initial and polling logic for driver location
-  useEffect(() => {
-    let isSubscribed = true;
-    let intervalId: NodeJS.Timeout;
-    const fetchLocation = async () => {
-      const updatedDriver = await syncDriverLocation(driver.id);
-      if (updatedDriver && isSubscribed) {
-        setCurrentDriver(updatedDriver);
-      }
-    };
-
-    // Poll every 5 seconds
-    intervalId = setInterval(fetchLocation, 5000);
-    return () => {
-      isSubscribed = false;
-      clearInterval(intervalId);
-    };
-  }, [driver.id, syncDriverLocation]);
+  const currentDriver = useMemo(() => users.find(u => u.id === driver.id) || driver, [users, driver]);
   const driverPos: [number, number] | null = currentDriver.currentLat && currentDriver.currentLng ? [currentDriver.currentLat, currentDriver.currentLng] : null;
   const destPos: [number, number] | null = order.deliveryAddress.lat && order.deliveryAddress.lng ? [order.deliveryAddress.lat, order.deliveryAddress.lng] : null;
   useEffect(() => {
