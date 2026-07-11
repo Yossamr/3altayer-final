@@ -203,9 +203,14 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     setImageAsset(null);
     setAudioAsset(null);
     setLoading(true);
-    await sendMessage(order.id, tempMsg, tempAudio || undefined, tempImg || undefined);
-    await loadMessages();
-    setLoading(false);
+    try {
+      await sendMessage(order.id, tempMsg, tempAudio || undefined, tempImg || undefined);
+      await loadMessages();
+    } catch (error) {
+      toast.error(t("ar_all_1247"));
+    } finally {
+      setLoading(false);
+    }
   };
   return createPortal(<div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center animate-in fade-in">
             <div className="bg-white dark:bg-gray-900 w-full sm:max-w-md h-[90dvh] sm:h-[600px] sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-10">
