@@ -232,8 +232,9 @@ export const AppProvider: React.FC<{
           audio.play().then(() => {
             audio.pause();
             audio.currentTime = 0;
+          }).catch(() => {}).finally(() => {
             audio.volume = originalVolume; // Restore volume after unlock
-          }).catch(() => {});
+          });
         }
       };
       unlock(notificationAudioRef.current);
