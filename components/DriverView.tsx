@@ -232,7 +232,6 @@ export const DriverView: React.FC = () => {
   };
   const handleAccept = (orderId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // FIX: Enable location tracking (allowTracking = true)
     acceptOrder(orderId, currentUser!.id, true);
     setActiveTab('active');
   };
