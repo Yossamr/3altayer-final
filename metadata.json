@@ -1,0 +1,13 @@
+{
+  "name": "AlTayyar - عالطاير",
+  "description": "Delivery marketplace matching customers and drivers. fully complies with Apple App Store Review Guidelines.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation",
+    "microphone",
+    "screen-wake-lock"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

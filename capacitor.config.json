@@ -1,0 +1,9 @@
+{
+  "appId": "com.altayyar.app",
+  "appName": "AlTayyar",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "BackgroundGeolocation": {}
+  }
+}
