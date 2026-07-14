@@ -75,12 +75,7 @@ async function rpcCall(method: string, args: any[] = []): Promise<any> {
         
         return data.result;
     } catch (e: any) {
-        let tokenDebug = "none";
-        if (token) {
-            tokenDebug = token.split('').map(c => `${c}(${c.charCodeAt(0)})`).join(' ');
-        }
         console.error(`RPC Error [${method}]:`, e);
-        console.error(`Token used (charcodes): ${tokenDebug}`);
         throw e;
     }
 }
